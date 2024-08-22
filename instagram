@@ -1,0 +1,101 @@
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time
+from PIL import Image
+from io import BytesIO
+from fpdf import FPDF
+import os
+# WebDriver
+def path(cr_path):
+    service = Service(cr_path)
+    driver = webdriver.Chrome(service=service)
+    return driver
+
+# URL
+def url(driver, get_url):
+    driver.get(get_url)
+    time.sleep(3)
+
+#username and password
+def login(driver,username,password):
+    username_input = driver.find_element(By.NAME, "username")
+    username_input.send_keys(username)
+    password_input = driver.find_element(By.NAME, "password")
+    password_input.send_keys(password)
+    password_input.send_keys(Keys.RETURN)
+    time.sleep(5)
+    not_now1=driver.find_element(By.XPATH, "//div[text()='Not now']")
+    not_now1.click()
+    time.sleep(3)
+    not_now1=driver.find_element(By.XPATH, "//button[text()='Not Now']")
+    not_now1.click()
+
+#screenshots
+def profile_info(driver,username):
+    driver.get(f"https://www.instagram.com/{username}/")
+    time.sleep(5)
+    post_links = set()
+    last_height = driver.execute_script("return document.body.scrollHeight")
+    
+    while True:
+        # Scroll down
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
+        
+        # Get post links
+        posts = driver.find_elements(By.XPATH, "//a[contains(@href, '/p/')]")
+        for post in posts:
+            post_links.add(post.get_attribute("href"))
+        len(post_links)
+        # Check if we are at the bottom
+        new_height = driver.execute_script("return document.body.scrollHeight")
+        if new_height == last_height:
+            break
+        last_height = new_height
+    
+    screenshots = []
+    for i, link in enumerate(post_links):
+        driver.get(link)
+        time.sleep(2)
+
+        # Take a screenshot of the post
+        image = driver.get_screenshot_as_png()
+        screenshot = Image.open(BytesIO(image))
+        screenshots.append(screenshot)
+        
+        print(f"Captured screenshot for post {i+1}/{len(post_links)}")
+
+    return screenshots
+def save_to_pdf(directory, screenshots, pdf_filename):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    pdf_path = os.path.join(directory, pdf_filename)
+    pdf = FPDF()
+    for i, image in enumerate(screenshots):
+        pdf.add_page()
+        img_path = os.path.join(directory, f"post_image_{i}.png")
+        image.save(img_path)
+        pdf.image(img_path, x=10, y=10, w=190)
+    pdf.output(pdf_path)
+    print(f"PDF saved at {pdf_path}")
+   
+
+    
+
+# inputs
+#cr_path = input("Enter the WebDriver path: ")
+#get_url = input("Enter the URL: ")
+#username=input("enter the username ")
+#password=input("enter the password ")
+
+# Initialize the driver and open the URL
+driver = path("C:/driver/chromedriver.exe")
+url(driver,"https://www.instagram.com/accounts/login/")
+login(driver,"mythun1625","MITHUN@123")
+screenshots=profile_info(driver,"mythun1625")
+save_to_pdf("C:\insta_posts",screenshots,"SIH.pdf")
+
