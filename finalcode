@@ -1,0 +1,182 @@
+import instaloader
+import os
+import random
+import time
+import pandas as pd
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from fake_useragent import UserAgent
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
+import matplotlib.pyplot as plt
+
+# Instagram API credentials
+USERNAME = '_nitish_16_'
+PASSWORD = '@nitish2005'
+
+def random_delay(min_seconds=2, max_seconds=10):
+    time.sleep(random.uniform(min_seconds, max_seconds))
+
+def login_instagram(driver):
+    driver.get('https://www.instagram.com/accounts/login/')
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.NAME, 'username'))
+    ).send_keys(USERNAME)
+    driver.find_element(By.NAME, 'password').send_keys(PASSWORD)
+    driver.find_element(By.XPATH, "//button[@type='submit']").click()
+    handle_popups(driver)
+
+def handle_popups(driver):
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//button[text()='Not Now']"))
+        ).click()
+    except Exception as e:
+        print(f"First pop-up not found or error clicking 'Not Now': {e}")
+
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//button[text()='Not Now']"))
+        ).click()
+    except Exception as e:
+        print(f"Second pop-up not found or error clicking 'Not Now': {e}")
+
+def fetch_posts(username):
+    L = instaloader.Instaloader()
+    session_file_path = f"{USERNAME}_session"
+    try:
+        L.load_session_from_file(session_file_path)
+    except FileNotFoundError:
+        L.login(USERNAME, PASSWORD)
+        L.save_session_to_file(session_file_path)
+
+    profile = instaloader.Profile.from_username(L.context, username)
+    posts = []
+    try:
+        for post in profile.get_posts():
+            posts.append({
+                'Date': str(post.date),
+                'Caption': post.caption if post.caption else 'No caption',
+                'Likes': post.likes,
+                'Comments': post.comments,
+                'URL': f"https://www.instagram.com/p/{post.shortcode}/"
+            })
+            if len(posts) == 10:
+                break
+            random_delay(1, 3)
+    except Exception as e:
+        print(f"Error fetching posts: {e}")
+    
+    return pd.DataFrame(posts)
+
+def take_screenshot(username, save_path):
+    ua = UserAgent()
+    options = webdriver.ChromeOptions()
+    options.add_argument(f'user-agent={ua.random}')
+    options.add_argument('--headless')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1920x1080')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    service = Service("C:/driver/chromedriver.exe")
+    driver = webdriver.Chrome(service=service, options=options)
+    
+    login_instagram(driver)
+    
+    driver.get(f'https://www.instagram.com/{username}/')
+    random_delay(2, 4)
+    
+    screenshot_path = os.path.join(save_path, f'{username}_profile.png')
+    driver.save_screenshot(screenshot_path)
+    driver.quit()
+    return screenshot_path
+
+
+def create_chart(posts_df, save_path):
+    posts_df['Date'] = pd.to_datetime(posts_df['Date'])
+    plt.figure(figsize=(10, 5))
+    plt.plot(posts_df['Date'], posts_df['Likes'], marker='o', label='Likes')
+    plt.plot(posts_df['Date'], posts_df['Comments'], marker='s', label='Comments')
+    plt.title('Engagement Metrics Over Time')
+    plt.xlabel('Date')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45)
+    plt.legend()
+    chart_path = os.path.join(save_path, 'engagement_chart.png')
+    plt.savefig(chart_path)
+    plt.close()
+    return chart_path
+
+def create_pdf(save_path, username, user_info, posts_df, profile_screenshot, chart_path):
+    pdf_path = os.path.join(save_path, f"{username}_analysis.pdf")
+    doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+    story = []
+    styles = getSampleStyleSheet()
+
+    # Title
+    story.append(Paragraph(f"Instagram Profile Analysis: {username}", styles['Title']))
+    story.append(Spacer(1, 12))
+
+
+    # Profile Screenshot
+    story.append(Paragraph("Profile Screenshot", styles['Heading2']))
+    img = Image(profile_screenshot, width=400, height=300)
+    story.append(img)
+    story.append(Spacer(1, 12))
+
+    # Engagement Chart
+    story.append(Paragraph("Engagement Chart", styles['Heading2']))
+    chart_img = Image(chart_path, width=400, height=300)
+    story.append(chart_img)
+    story.append(Spacer(1, 12))
+
+    # Recent Posts
+    story.append(Paragraph("Recent Posts", styles['Heading2']))
+    if not posts_df.empty:
+        for index, row in posts_df.iterrows():
+            try:
+                date = str(row.get('Date', 'Date not available'))
+                caption = str(row.get('Caption', 'No caption'))[:100] + '...'
+                likes = str(row.get('Likes', 'Unknown'))
+                comments = str(row.get('Comments', 'Unknown'))
+                url = str(row.get('URL', 'URL not available'))
+                
+                post_info = f"<b>Date:</b> {date}<br/><b>Caption:</b> {caption}<br/><b>Likes:</b> {likes}, <b>Comments:</b> {comments}<br/><b>URL:</b> {url}"
+                story.append(Paragraph(post_info, styles['Normal']))
+                story.append(Spacer(1, 6))
+            except Exception as e:
+                print(f"Error processing row {index}: {e}")
+                story.append(Paragraph(f"Error processing post {index}", styles['Normal']))
+    else:
+        story.append(Paragraph("No posts available or failed to fetch posts.", styles['Normal']))
+
+    doc.build(story)
+    print(f"PDF saved to: {pdf_path}")
+
+def main():
+    username = '_nitish_16_'  # Replace with target username
+    save_path = "C:/insta_posts"
+    os.makedirs(save_path, exist_ok=True)
+
+    random_delay(3, 6)
+    posts_df = fetch_posts(username)
+    print(f"Debug: posts_df shape: {posts_df.shape}")
+    print(f"Debug: posts_df columns: {posts_df.columns}")
+
+    random_delay(3, 6)
+    profile_screenshot = take_screenshot(username, save_path)
+    print(f'Screenshot saved at {profile_screenshot}')
+
+    random_delay(3, 6)
+    user_info = get_user_info(username)
+
+    chart_path = create_chart(posts_df, save_path)
+    create_pdf(save_path, username, user_info, posts_df, profile_screenshot, chart_path)
+
+if __name__ == "__main__":
+    main()
